@@ -9,36 +9,40 @@ import csv
 ######################################################################
 ###################### ARIMA MODEL ###################################
 ######################################################################
-
 def main(train, test, dataSetID, column, lowHighDifference, train_v1, test_v1):
-
-    numOfSteps = 3
-    # test = test[:8]
+    numOfSteps = 3 # Num of steps that need to forecasted
+    # test = test[:8] # Test set size
     immediate1stPredictions = []
     immediate2ndPredictions = []
     immediate3rdPredictions = []
     dataSet = pd.concat([train, test], ignore_index=False, axis=0)
     dataSetPred = dataSet.copy()
+
+    print('\n')
     print('Low high difference : ', lowHighDifference)
     print('Training set size : ', len(train))
     print('Test set size : ', len(test))
     print('Dataset size : ', len(dataSet))
+    print('\n')
 
     # Train the model
     # immediate1stPredictions, immediate2ndPredictions, immediate3rdPredictions = trainModel(train, test, numOfSteps, immediate1stPredictions, immediate2ndPredictions. immediate2ndPredictions, immediate3rdPredictions)
     testSetIsAnomaly, models = trainModel(train, test, numOfSteps, immediate1stPredictions, immediate2ndPredictions, immediate3rdPredictions, dataSetID, column, lowHighDifference, test_v1)
 
+    # Add immediate predictions to the whole dataset
     dataSetPred['predictions'] = np.nan
     for i in range(len(immediate1stPredictions)):
         dataSetPred.loc[dataSetPred.head(len(dataSetPred)).index[i + len(train)], 'predictions'] = immediate1stPredictions[i]
 
-
-
+    # Print dataframes
     pd.set_option("display.max_rows", None, "display.max_columns", 9)
-
+    print('Print dataset')
     print(dataSet)
+    print('Print testset with anomaly points marked')
     print(testSetIsAnomaly)
     fields = [str(dataSetID + 1) + '. Accuracy metrics']
+
+    # Write anomaly table to csv file
     with open(r'Anomaly.csv', 'a') as fd:
         writer = csv.writer(fd)
         writer.writerow(fields)
@@ -67,7 +71,7 @@ def main(train, test, dataSetID, column, lowHighDifference, train_v1, test_v1):
     test2['predictions'] = immediate2ndPredictions
     test3['predictions'] = immediate3rdPredictions
 
-
+    # Plots immediate predictions
     plotResults(dataSet, train, test1, models[0], 'ARIMA - Immediate 1st Predictions', 'ARIMA - Immediate 1st Predictions in small time frame', str(train.index[-1])[:-6], dataSetID)
     plotResults(dataSet, pd.concat([train, test[0:1]], ignore_index=False, axis=0), test2, models[1],
                 'ARIMA - Immediate 2nd Predictions', 'ARIMA - Immediate 2nd Predictions in small time frame',
@@ -76,7 +80,7 @@ def main(train, test, dataSetID, column, lowHighDifference, train_v1, test_v1):
                 'ARIMA - Immediate 3rd Predictions', 'ARIMA - Immediate 3rd Predictions in small time frame',
                 str(test1.index[1])[:-6], dataSetID)
 
-    # Plot final plots
+    # Plot final anomaly plots
     plotAnomaly(testSetIsAnomaly, dataSet, train, dataSetID, test_v1, column)
     # # plot the residuals of the model. The residuals are the difference between the original values and the predicted values from the model.
     # result.resid.plot(kind='kde', title='residuals of the model')
@@ -150,6 +154,7 @@ def trainModel(train, test, numOfSteps, immediate1stPredictions, immediate2ndPre
 
     # Predict immediate 3 values each time and add them into 3 arrays
     for i in range(0, len(test)):
+        # Run auto arima after 20 data points
         if ((i+1)%20 == 0):
             m = auto_arima(train1[column], seasonal=False, m=0, max_p=7, max_d=5, max_q=7, max_P=4, max_D=4, max_Q=4)
             print(m.summary())
@@ -167,7 +172,7 @@ def trainModel(train, test, numOfSteps, immediate1stPredictions, immediate2ndPre
         immediate3rdPredictions.append(pred.predicted_mean.values[2])
 
         squared_errors = (result.resid.values) ** 2
-        threshold = np.mean(squared_errors) + 3 * np.std(squared_errors) + lowHighDifference/2
+        threshold = np.mean(squared_errors) + 3 * np.std(squared_errors)
         # print(threshold, np.mean(squared_errors), 3 * np.std(squared_errors), lowHighDifference/2,lowHighDifference)
         # print('threshold', threshold, np.mean(squared_errors), 3 * np.std(squared_errors), lowHighDifference)
         # ci = result.conf_int(0.05)
@@ -179,6 +184,7 @@ def trainModel(train, test, numOfSteps, immediate1stPredictions, immediate2ndPre
 
         # train1 = pd.concat([train1, test[i:i + 1]], ignore_index=False, axis=0)
 
+        # If there is an anomaly add the prediction to the training set
         if anomaly == 1:
             x = test.copy()
             x = x[i:i + 1]
@@ -186,7 +192,7 @@ def trainModel(train, test, numOfSteps, immediate1stPredictions, immediate2ndPre
             train1 = pd.concat([train1, x], ignore_index=False, axis=0)
         else:
             train1 = pd.concat([train1, test[i:i + 1]], ignore_index=False, axis=0)
-
+        train1 = train1[1:]
         test1.iloc[i, 1] = pred.predicted_mean.values[0]
         test1.iloc[i, 2] = str(anomaly)
     return test1, models
@@ -218,13 +224,12 @@ def plotResults(dataSet, trainSet, testSet, model, title1, title2, splitLineValu
     #####################################
     # Dataset id is used when we loop through lots of datasets, coming from main file
     # Plot whole dataset, fitted values and immediate observations
-    startDate = '2021-02-17 12:18'
-    endDate = '2021-02-17 12:40'
+
 
     # index = -13
     dataSet.plot(figsize=(10, 7), xlabel='Time', ylabel='Latency', label='Latency', title=title1, xlim=[str(trainSet.index[-3])[:-9], str(testSet.index[int((len(testSet)/6)*5)])[:-9]])
     plt.plot(testSet.index, testSet['predictions'], label='Predictions')
-    plt.plot(trainSet.index, model.fittedvalues, label='Fitted model')
+    # plt.plot(trainSet.index, model.fittedvalues, label='Fitted model')
     plt.axvline(pd.to_datetime(splitLineValue), color='k', linestyle='--')
     plt.legend(loc='best')
     plt.savefig(str(dataSetID) + '. ' + title1 + '.png', dpi=300, bbox_inches='tight')
@@ -236,7 +241,7 @@ def plotResults(dataSet, trainSet, testSet, model, title1, title2, splitLineValu
                  xlim=[str(trainSet.index[-3])[:-9], str(testSet.index[int(len(testSet)/3)])[:-9]])
     plt.axvline(pd.to_datetime(splitLineValue), color='k', linestyle='--')
     plt.plot(testSet.index, testSet['predictions'], label='Predictions')
-    plt.plot(trainSet.index, model.fittedvalues, label='Fitted model')
+    # plt.plot(trainSet.index, model.fittedvalues, label='Fitted model')
     plt.legend(loc='best')
     plt.savefig(str(dataSetID) + '. ' + title2 + '.png', dpi=300, bbox_inches='tight')
     plt.show()
@@ -248,7 +253,7 @@ def plotResults(dataSet, trainSet, testSet, model, title1, title2, splitLineValu
                  xlim=[str(trainSet.index[-3])[:-9], str(testSet.index[int(len(testSet)/6)])[:-9]])
     plt.axvline(pd.to_datetime(splitLineValue), color='k', linestyle='--')
     plt.plot(testSet.index, testSet['predictions'], label='Predictions')
-    plt.plot(trainSet.index, model.fittedvalues, label='Fitted model')
+    # plt.plot(trainSet.index, model.fittedvalues, label='Fitted model')
     plt.legend(loc='best')
     plt.savefig(str(dataSetID) + '. ' + title2 + ' (Much smaller).png', dpi=300, bbox_inches='tight')
     plt.show()
