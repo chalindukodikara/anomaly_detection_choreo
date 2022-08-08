@@ -9,6 +9,7 @@ import arimaModel
 from sklearn.preprocessing import StandardScaler
 from math import sqrt
 import os
+import arimaFD
 import arimaAnomalyDetection
 import csv
 from scipy.stats import boxcox
@@ -46,12 +47,29 @@ with open(r'Anomaly.csv', 'w') as fd:
 
 trainTestRatio = 0.7 # Split percentage
 csvFiles = ['normal', 'anomaly']
-typeOfData = csvFiles[0]
+x = 1
+typeOfData = csvFiles[x]
 columnsDrop = ["in_throughput", "in_progress_requests", "http_error_count", 'ballerina_error_count', 'cpu', 'memory', 'cpuPercentage', 'memoryPercentage']
+
+normalList = [[0, 9, 20, 29],[9, 20]]
+anomalyList = [[0, 10, 14, 16, 25, 31],[0, 10]]
+
+if x == 0:
+	if len(normalList[1]) != 0:
+		dataFileLists = [normalList[x+1], anomalyList[x]]
+	else:
+		dataFileLists = [normalList[x], anomalyList[x]]
+else:
+	if len(anomalyList[1]) != 0:
+		dataFileLists = [normalList[x-1], anomalyList[x]]
+	else:
+		dataFileLists = [normalList[x-1], anomalyList[x-1]]
+
+splitSize = 40
 ######################################################################
 ###################### DATA PREPARING ################################
 ######################################################################
-for dataSetID in [0, 10, 14, 16, 25, 31]:
+for dataSetID in dataFileLists[x]:
 	# Check the data file type
 	if typeOfData == 'anomaly':
 		csvFileName = anomalyDataSetsList[dataSetID]
@@ -96,6 +114,8 @@ for dataSetID in [0, 10, 14, 16, 25, 31]:
 	dataSet_v1 = dataSet_v1.drop(dataSet_v1.head(len(dataSet_v1)).index[0])
 	dataSet_v1 = dataSet_v1.drop(dataSet_v1.head(len(dataSet_v1)).index[0])
 
+	# xx = dataSet_v1.drop(labels = 'is_anomaly', axis = 1)
+	# print(xx)
 	###################### Take Difference ###############################
 	######################################################################
 	# # Difference
@@ -108,6 +128,9 @@ for dataSetID in [0, 10, 14, 16, 25, 31]:
 	# dataSet_v1['in_throughput'] = y
 	# print(dataSet_v1)
 
+	# dataSet_v1 = dataSet_v1.diff(periods=1)
+	# dataSet_v1.dropna(inplace=True)  # Drop null values
+
 	###################### Add WIP Feature ###############################
 	######################################################################
 	# # Add more features
@@ -119,29 +142,7 @@ for dataSetID in [0, 10, 14, 16, 25, 31]:
 	# 	 'in_throughput'], axis=1)
 	# print(dataSet_v1)
 
-	################## Find Lowest and Highest values ####################
-	######################################################################
-	# Find lowest and highest value in the normal dataset
-	lowest = 9999999
-	highest = -9999999
-	while True:
-		x = 0
-		y = len(dataSet_v1)
-		for i in range(len(dataSet_v1)):
-			if dataSet_v1[column][i] < lowest:
-				lowest = dataSet_v1[column][i]
-				# print('lowest: ', lowest)
-				# print(dataSet_v1.iloc[i])
-			if dataSet_v1[column][i] > highest:
-				highest = dataSet_v1[column][i]
-				# print('highest: ', highest)
-				# print(dataSet_v1.iloc[i])
-			if i == y - 1:
-				x = 1
-		if x == 1:
-			break
-	lowHighDifference = round((highest - lowest), 5)
-	print('lowest and highest values ',lowest, highest)
+
 	###################### Power Transform ###############################
 	######################################################################
 	# Power Transform
@@ -202,37 +203,38 @@ for dataSetID in [0, 10, 14, 16, 25, 31]:
 	# Split data set into train and test set
 	# size = int(len(dataSet_v1) * trainTestRatio)
 	# size = len(dataSet_v1)
-	size = 60
+	size = splitSize
 
 	## Limit dataset size
-	# dataSet_v1 = dataSet_v1[:int(len(dataSet_v1)*0.8)]
+	# dataSet_v1 = dataSet_v1[:int(len(dataSet_v1)*0.5)]
+
 
 	###################### Standardization ###############################
 	######################################################################
-	# # Standardize time series data
-	# # prepare data for standardization
-	# values = dataSet_v1.values
-	# values = values.reshape((len(values), 1))
-	#
-	# # train the standardization
-	# scaler = StandardScaler()
-	# scaler = scaler.fit(values)
-	# print('Mean: %f, StandardDeviation: %f' % (scaler.mean_, sqrt(scaler.var_)))
-	#
-	# # standardization the dataset and print the first 5 rows
-	# normalized = scaler.transform(values)
-	# # for i in range(5):
-	# # 	print(normalized[i])
-	#
-	# # inverse transform and print the first 5 rows
-	# # inversed = scaler.inverse_transform(normalized)
-	# # for i in range(5):
-	# # 	print(inversed[i])
-	#
-	# dataSet_v1[column] = normalized
-	# print(dataSet_v1)
-	# dataSet_v1.hist()
-	# plt.show()
+	# Standardize time series data
+	# prepare data for standardization
+	values = dataSet_v1.values
+	values = values.reshape((len(values), 1))
+
+	# train the standardization
+	scaler = StandardScaler()
+	scaler = scaler.fit(values)
+	print('Mean: %f, StandardDeviation: %f' % (scaler.mean_, sqrt(scaler.var_)))
+
+	# standardization the dataset and print the first 5 rows
+	normalized = scaler.transform(values)
+	# for i in range(5):
+	# 	print(normalized[i])
+
+	# inverse transform and print the first 5 rows
+	# inversed = scaler.inverse_transform(normalized)
+	# for i in range(5):
+	# 	print(inversed[i])
+
+	# dataSet_v1[column] = normalized/10
+	print(dataSet_v1)
+	dataSet_v1.hist()
+	plt.show()
 
 	########################### Smoothing ################################
 	######################################################################
@@ -248,12 +250,35 @@ for dataSetID in [0, 10, 14, 16, 25, 31]:
 	# Without smoothing
 	train_v1, test_v1 = dataSet_v1[0:size], dataSet_v1[size:len(dataSet_v2)] # Without savlog filter
 
+	################## Find Lowest and Highest values ####################
+	######################################################################
+	# # Find lowest and highest value in the normal dataset
+	# lowest = 9999999
+	# highest = -9999999
+	# while True:
+	# 	x = 0
+	# 	y = len(train)
+	# 	for i in range(len(train)):
+	# 		if train[column][i] < lowest:
+	# 			lowest = train[column][i]
+	# 		# print('lowest: ', lowest)
+	# 		# print(dataSet_v1.iloc[i])
+	# 		if train[column][i] > highest:
+	# 			highest = train[column][i]
+	# 		# print('highest: ', highest)
+	# 		# print(dataSet_v1.iloc[i])
+	# 		if i == y - 1:
+	# 			x = 1
+	# 	if x == 1:
+	# 		break
+	# lowHighDifference = round((highest - lowest), 5)
+	# print('lowest and highest values ', lowest, highest)
 	########################### Plot data ################################
 	######################################################################
 
 	# Plot original data
 	dataSet_v1.plot(figsize=(10, 7), xlabel = 'Time', ylabel = 'Latency(ms)', title = csvFileName + ' Tr set and test set')
-	plt.savefig(str(dataSetID) + '.' + ' Train and Test Set (' + csvFileName + ').png', dpi=300, bbox_inches='tight')
+	plt.savefig("plots_result/" + str(dataSetID) + '.' + ' Train and Test Set (' + csvFileName + ').png', dpi=300, bbox_inches='tight')
 	plt.show()
 
 	# Plot training data and test data with smoothed data
@@ -296,13 +321,15 @@ for dataSetID in [0, 10, 14, 16, 25, 31]:
 	print('Test set size : ', len(test))
 	print('Dataset size : ', len(dataSet_v1))
 	print('\n')
+	print(1%5)
 	######################################################################
 	###################### ARIMA MODEL ###################################
 	######################################################################
 	# arimaModel.main(train, test, dataSetID, column)
 
-	# arimaAnomalyDetection.main(train, test, dataSetID, column, lowHighDifference, train_v1, test_v1)
+	arimaAnomalyDetection.main(train, test, dataSetID, column, train_v1, test_v1)
 
+	# arimaFD.main(train, test, dataSetID, column, lowHighDifference, train_v1, test_v1)
 	######################################################################
 	###################### HOLT WINTERS ##################################
 	######################################################################
