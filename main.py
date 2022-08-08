@@ -1,15 +1,7 @@
 import numpy as np
-from pandas.tseries.offsets import DateOffset
 from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
-from statsmodels.tsa.arima.model import ARIMA
-from statsmodels.tsa.statespace.sarimax import SARIMAX
 from datetime import datetime
-from statsmodels.tsa.seasonal import seasonal_decompose
-from statsmodels.tsa.stattools import adfuller
-from pmdarima.arima.utils import ndiffs
-from sklearn.metrics import mean_squared_error
 from pmdarima import auto_arima
-import holtWintersModel as holtWinters
 import pandas as pd
 import matplotlib.pyplot as plt
 from scipy.signal import savgol_filter
@@ -17,13 +9,11 @@ import arimaModel
 from sklearn.preprocessing import StandardScaler
 from math import sqrt
 import os
-# check prophet version
-import fbprophet
-import fbProphet
-import thymeBoost
+import arimaFD
 import arimaAnomalyDetection
 import csv
 from scipy.stats import boxcox
+
 ######################################################################
 ###################### VARIABLES #####################################
 ######################################################################
@@ -46,7 +36,7 @@ anomalyDataSetsList = ['echo_service_cpu_hog_spikes_merged_metrics.csv', 'echo_s
 					   'slow_backend_cpu_hog_step_merged_metrics.csv', 'slow_backend_long_delay_node1_merged_metrics.csv', 'slow_backend_long_delay_node2_merged_metrics.csv', 'slow_backend_short_delay_node1_merged_metrics.csv', 'slow_backend_short_delay_node2_merged_metrics.csv',
 					   'slow_backend_user_surge_spike_node1_merged_metrics.csv', 'slow_backend_user_surge_spike_node2_merged_metrics.csv', 'slow_backend_user_surge_trend_node1_merged_metrics.csv', 'slow_backend_user_surge_trend_node2_merged_metrics.csv']
 print(len(dataSetsList))
-trainTestRatio = 0.7 # Split percentage
+
 with open('Accuracy.txt', 'w') as f:
 	f.write('\n')
 
@@ -54,18 +44,48 @@ fields = [' ']
 with open(r'Anomaly.csv', 'w') as fd:
 	writer = csv.writer(fd)
 	writer.writerow(fields)
+
+trainTestRatio = 0.7 # Split percentage
+csvFiles = ['normal', 'anomaly']
+x = 1
+typeOfData = csvFiles[x]
+columnsDrop = ["in_throughput", "in_progress_requests", "http_error_count", 'ballerina_error_count', 'cpu', 'memory', 'cpuPercentage', 'memoryPercentage']
+
+normalList = [[0, 9, 20, 29],[9, 20]]
+anomalyList = [[0, 10, 14, 16, 25, 31],[0, 10]]
+
+if x == 0:
+	if len(normalList[1]) != 0:
+		dataFileLists = [normalList[x+1], anomalyList[x]]
+	else:
+		dataFileLists = [normalList[x], anomalyList[x]]
+else:
+	if len(anomalyList[1]) != 0:
+		dataFileLists = [normalList[x-1], anomalyList[x]]
+	else:
+		dataFileLists = [normalList[x-1], anomalyList[x-1]]
+
+splitSize = 40
 ######################################################################
 ###################### DATA PREPARING ################################
 ######################################################################
-for dataSetID in [0, 9, 20, 29]:
-	csvFileName = dataSetsList[dataSetID]
-	print(csvFileName)
+for dataSetID in dataFileLists[x]:
+	# Check the data file type
+	if typeOfData == 'anomaly':
+		csvFileName = anomalyDataSetsList[dataSetID]
+		print('CSV File Name :- ', csvFileName)
+		# Import csv data
+		dataSet_v1 = pd.read_csv('anomaly_data/' + csvFileName)
+		columnsDrop.append('is_anomaly')
+	else:
+		csvFileName = dataSetsList[dataSetID]
+		print(csvFileName)
+		# Import csv data
+		dataSet_v1 = pd.read_csv('normal_data/' + csvFileName)
 
-	# Import csv data
-	dataSet_v1 = pd.read_csv('normal_data/' + csvFileName)
 	# We need to set the Month column as index and convert it into datetime
 	dataSet_v1.set_index('datetime', inplace=True) # inplace = If True, modifies the DataFrame in place (do not create a new object)
-	dataSet_v1 = dataSet_v1.drop(["in_progress_requests", "http_error_count", 'ballerina_error_count', 'cpu', 'memory', 'cpuPercentage', 'memoryPercentage'], axis=1)
+	dataSet_v1 = dataSet_v1.drop(columnsDrop, axis=1)
 	dataSet_v1.index = pd.to_datetime(dataSet_v1.index) # Convert argument to datetime.
 	dataSet_v1.head()
 
@@ -94,45 +114,45 @@ for dataSetID in [0, 9, 20, 29]:
 	dataSet_v1 = dataSet_v1.drop(dataSet_v1.head(len(dataSet_v1)).index[0])
 	dataSet_v1 = dataSet_v1.drop(dataSet_v1.head(len(dataSet_v1)).index[0])
 
-	# Add more features
-	dataSet_v1['wip'] = np.nan
-	dataSet_v1['wip'] = dataSet_v1['in_avg_response_time'] * dataSet_v1['in_throughput']
-	column = "wip"
-	dataSet_v1 = dataSet_v1.drop(
-		["in_avg_response_time",
-		 'in_throughput'], axis=1)
-	print(dataSet_v1)
+	# xx = dataSet_v1.drop(labels = 'is_anomaly', axis = 1)
+	# print(xx)
+	###################### Take Difference ###############################
+	######################################################################
+	# # Difference
+	# m = auto_arima(dataSet_v1[column], seasonal=False, m=0, max_p=7, max_d=5, max_q=7, max_P=4, max_D=4, max_Q=4)
+	# numOfDifferences = m.get_params()['order'][1]
+	# x = difference(dataSet_v1[column].values, 1)
+	# y = difference(dataSet_v1['in_throughput'].values, 1)
+	# dataSet_v1 = dataSet_v1[1:]
+	# dataSet_v1[column] = x
+	# dataSet_v1['in_throughput'] = y
+	# print(dataSet_v1)
 
-	# Find lowest and highest value in the normal dataset
-	lowest = 9999999
-	highest = -9999999
-	while True:
-		x = 0
-		y = len(dataSet_v1)
-		for i in range(len(dataSet_v1)):
-			if dataSet_v1[column][i] < lowest:
-				lowest = dataSet_v1[column][i]
-				# print('lowest: ', lowest)
-				# print(dataSet_v1.iloc[i])
-			if dataSet_v1[column][i] > highest:
-				highest = dataSet_v1[column][i]
-				# print('highest: ', highest)
-				# print(dataSet_v1.iloc[i])
-			if i == y - 1:
-				x = 1
-		if x == 1:
-			break
-	lowHighDifference = round((highest - lowest), 5)
+	# dataSet_v1 = dataSet_v1.diff(periods=1)
+	# dataSet_v1.dropna(inplace=True)  # Drop null values
 
+	###################### Add WIP Feature ###############################
+	######################################################################
+	# # Add more features
+	# dataSet_v1['wip'] = np.nan
+	# dataSet_v1['wip'] = dataSet_v1['in_avg_response_time'] * dataSet_v1['in_throughput']
+	# column = "wip"
+	# dataSet_v1 = dataSet_v1.drop(
+	# 	["in_avg_response_time",
+	# 	 'in_throughput'], axis=1)
+	# print(dataSet_v1)
+
+
+	###################### Power Transform ###############################
+	######################################################################
 	# Power Transform
 	# dataSet_v1[column], lmbda = boxcox(dataSet_v1[column])
 
 	# dataSet_v1['in_avg_response_time'] = np.log(dataSet_v1['in_avg_response_time'])
 	dataSet_v1.hist()
 	plt.show()
+	print('Dataset info : ')
 	print(dataSet_v1.info())
-
-	print(lowest, highest)
 
 	######################################################################
 	###################### Get Anomaly Data ##############################
@@ -178,89 +198,87 @@ for dataSetID in [0, 9, 20, 29]:
 	# 	idx = dataSet_v1.tail(1).index[0] + pd.Timedelta(seconds=10)
 	# 	dataSet_v1.loc[idx] = round(anomalyDataSet_v1.iloc[i, 0], 6)
 
-	######################################################################
 	########################### Split Size ###############################
 	######################################################################
 	# Split data set into train and test set
-	size = int(len(dataSet_v1) * trainTestRatio)
+	# size = int(len(dataSet_v1) * trainTestRatio)
 	# size = len(dataSet_v1)
-	# size = 5
+	size = splitSize
 
-	######################################################################
+	## Limit dataset size
+	# dataSet_v1 = dataSet_v1[:int(len(dataSet_v1)*0.5)]
+
+
 	###################### Standardization ###############################
 	######################################################################
-	# # Standardize time series data
-	# # prepare data for standardization
-	# values = dataSet_v1.values
-	# values = values.reshape((len(values), 1))
-	#
-	# # train the standardization
-	# scaler = StandardScaler()
-	# scaler = scaler.fit(values)
-	# print('Mean: %f, StandardDeviation: %f' % (scaler.mean_, sqrt(scaler.var_)))
-	#
-	# # standardization the dataset and print the first 5 rows
-	# normalized = scaler.transform(values)
-	# # for i in range(5):
-	# # 	print(normalized[i])
-	#
-	# # inverse transform and print the first 5 rows
-	# # inversed = scaler.inverse_transform(normalized)
-	# # for i in range(5):
-	# # 	print(inversed[i])
-	#
-	# dataSet_v1[column] = normalized
-	# print(dataSet_v1)
-	# dataSet_v1.hist()
-	# plt.show()
+	# Standardize time series data
+	# prepare data for standardization
+	values = dataSet_v1.values
+	values = values.reshape((len(values), 1))
 
+	# train the standardization
+	scaler = StandardScaler()
+	scaler = scaler.fit(values)
+	print('Mean: %f, StandardDeviation: %f' % (scaler.mean_, sqrt(scaler.var_)))
 
-	######################################################################
-	###################### Smoothing #####################################
+	# standardization the dataset and print the first 5 rows
+	normalized = scaler.transform(values)
+	# for i in range(5):
+	# 	print(normalized[i])
+
+	# inverse transform and print the first 5 rows
+	# inversed = scaler.inverse_transform(normalized)
+	# for i in range(5):
+	# 	print(inversed[i])
+
+	# dataSet_v1[column] = normalized/10
+	print(dataSet_v1)
+	dataSet_v1.hist()
+	plt.show()
+
+	########################### Smoothing ################################
 	######################################################################
 	# Savgol filter, window length, polynomial order : 15, 8
 	dataSet_v2 = dataSet_v1.copy()
 	dataSet_v2[column] = savgol_filter(dataSet_v1[column], 15, 8)
+	print('Dataset after smoothing')
 	print(dataSet_v2)
 
+	# Smoothed split
 	train, test = dataSet_v2[0:size], dataSet_v2[size:len(dataSet_v2)]
+
+	# Without smoothing
 	train_v1, test_v1 = dataSet_v1[0:size], dataSet_v1[size:len(dataSet_v2)] # Without savlog filter
 
-
-	# test['is_anomaly'] = np.nan
-	# test.iloc[0, 1] = '1'
-	# test.iloc[1, 1] = '0'
-	# pd.set_option("display.max_rows", None, "display.max_columns", None)
-	# print(train)
-	# print(test)
-
-	# Smooth only training set
-	# train[column] = savgol_filter(train[column], 15, 8)
-
-	# Reduce training set size
-	# train_v1 = train_v1[297:]
-	# train = train[297:]
-
-
-
-	# Smooth dataset. window size 15, polynomial order 8
-	# train_not_smoothed = train_not_smoothed[150:]
-	# train_smoothed = savgol_filter(train_not_smoothed[column], 15, 8)
-
-	# Copy dataframe object into another object
-	# train = train_not_smoothed.copy()
-
-	# test = test[:30]
-	# train[column] = np.nan
-	# train[column] = train_smoothed
-	# Print smoothed data
-	# print(train)
-	# test[column] = savgol_filter(test[column], 15, 8)
-
+	################## Find Lowest and Highest values ####################
+	######################################################################
+	# # Find lowest and highest value in the normal dataset
+	# lowest = 9999999
+	# highest = -9999999
+	# while True:
+	# 	x = 0
+	# 	y = len(train)
+	# 	for i in range(len(train)):
+	# 		if train[column][i] < lowest:
+	# 			lowest = train[column][i]
+	# 		# print('lowest: ', lowest)
+	# 		# print(dataSet_v1.iloc[i])
+	# 		if train[column][i] > highest:
+	# 			highest = train[column][i]
+	# 		# print('highest: ', highest)
+	# 		# print(dataSet_v1.iloc[i])
+	# 		if i == y - 1:
+	# 			x = 1
+	# 	if x == 1:
+	# 		break
+	# lowHighDifference = round((highest - lowest), 5)
+	# print('lowest and highest values ', lowest, highest)
+	########################### Plot data ################################
+	######################################################################
 
 	# Plot original data
 	dataSet_v1.plot(figsize=(10, 7), xlabel = 'Time', ylabel = 'Latency(ms)', title = csvFileName + ' Tr set and test set')
-	plt.savefig(str(dataSetID) + '.' + ' Train and Test Set (' + csvFileName + ').png', dpi=300, bbox_inches='tight')
+	plt.savefig("plots_result/" + str(dataSetID) + '.' + ' Train and Test Set (' + csvFileName + ').png', dpi=300, bbox_inches='tight')
 	plt.show()
 
 	# Plot training data and test data with smoothed data
@@ -287,31 +305,31 @@ for dataSetID in [0, 9, 20, 29]:
 	# plt.savefig(str(dataSetID) + '.' + ' Smoothed Data (' + str(2) + ').png', dpi=300, bbox_inches='tight')
 	# plt.show()
 
-	# Plot training data and smoothed data in small time frame
-	test_v1.plot(figsize=(10, 7), xlabel='Time', ylabel='Latency(ms)', label='Latency',
-				  title='Smoothed data in small time frame', xlim=['2021-02-18 16:59','2021-02-18 17:04' ])
-	# plt.plot(test.index, test)
-	plt.plot(test.index, test[column], label='Smoothed data')
-	plt.legend(loc="upper left")
-	plt.savefig(str(dataSetID) + '.' + ' Smoothed Data (' + str(2) + ').png', dpi=300, bbox_inches='tight')
-	plt.show()
+	# # Plot training data and smoothed data in small time frame
+	# test_v1.plot(figsize=(10, 7), xlabel='Time', ylabel='Latency(ms)', label='Latency',
+	# 			  title='Smoothed data in small time frame', xlim=[str(test.index[0])[:-9], str(test.index[-1])[:-9]])
+	# # plt.plot(test.index, test)
+	# plt.plot(test.index, test[column], label='Smoothed data')
+	# plt.legend(loc="upper left")
+	# plt.savefig(str(dataSetID) + '.' + ' Smoothed Data (' + str(2) + ').png', dpi=300, bbox_inches='tight')
+	# plt.show()
 
-	#
 	# Print training and test set sizes
+	print('\n')
 	print(str(dataSetID + 1) + '. Dataset Sizes ' + csvFileName)
 	print('Training set size : ', len(train))
 	print('Test set size : ', len(test))
 	print('Dataset size : ', len(dataSet_v1))
-
-	# print(train, test)
-
+	print('\n')
+	print(1%5)
 	######################################################################
 	###################### ARIMA MODEL ###################################
 	######################################################################
 	# arimaModel.main(train, test, dataSetID, column)
 
-	arimaAnomalyDetection.main(train, test, dataSetID, column, lowHighDifference, train_v1, test_v1)
+	arimaAnomalyDetection.main(train, test, dataSetID, column, train_v1, test_v1)
 
+	# arimaFD.main(train, test, dataSetID, column, lowHighDifference, train_v1, test_v1)
 	######################################################################
 	###################### HOLT WINTERS ##################################
 	######################################################################

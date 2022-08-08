@@ -13,8 +13,8 @@ import arimaHelpers as arimaFunctions
 def main(train, test, dataSetID, column):
 
     numOfDifferences = 1
-    numOfSteps = 3
-    # test = test[:50]
+    numOfSteps = 7
+    test = test[:20]
     immediate1stPredictions = []
     immediate2ndPredictions = []
     immediate3rdPredictions = []
@@ -60,6 +60,8 @@ def main(train, test, dataSetID, column):
     test2['predictions'] = immediate2ndPredictions
     test3['predictions'] = immediate3rdPredictions
 
+    print(len(immediate1stPredictions), len(immediate2ndPredictions), len(immediate3rdPredictions))
+    print(immediate1stPredictions, immediate2ndPredictions, immediate3rdPredictions)
     # print(len(immediate2ndPredictions))
     # print(len(immediate3rdPredictions))
     # print(str(train.index[-1])[:-6])
@@ -147,31 +149,35 @@ def trainModel(train, test, numOfSteps, immediate1stPredictions, immediate2ndPre
     train1 = train.copy() # Create new train dataframe to avoid changes in initial training dataset
 
     # print(test)
-
+    iterateValue = 0
     # Predict immediate 3 values each time and add them into 3 arrays
     for i in range(len(test)):
         # Create the model and fit it
         # print(i)
         # print(test[i:i + 1])
-        if ((i+1)%10 == 0):
+        # print(i, (i+1)%5 , (i+1)%5 == 0)
+        if ((i)%5 == 0):
             m = auto_arima(train1[column], seasonal=False, m=0, max_p=7, max_d=5, max_q=7, max_P=4, max_D=4, max_Q=4)
-            print(m.summary())
+            # print(m.summary())
             autoRegressive = m.get_params()['order'][0]
             numOfDifferences = m.get_params()['order'][1]
             movingAverage = m.get_params()['order'][2]
-        model = ARIMA(train1[column], order=(autoRegressive, numOfDifferences, movingAverage))
-        result = model.fit()
+            print('training started..................................', i)
+            model = ARIMA(train1[column], order=(autoRegressive, numOfDifferences, movingAverage))
+            result = model.fit()
+            # Print summary of the model
+            # print(result.summary())
+            pred = result.get_forecast(steps=numOfSteps)
+            iterateValue = 0
         if i == 0 or i == 1 or i == 2:
             models.append(result)
-        # Print summary of the model
-        # print(result.summary())
-        pred = result.get_forecast(steps=numOfSteps)
-        immediate1stPredictions.append(pred.predicted_mean.values[0])
-        immediate2ndPredictions.append(pred.predicted_mean.values[1])
-        immediate3rdPredictions.append(pred.predicted_mean.values[2])
+        immediate1stPredictions.append(pred.predicted_mean.values[ (iterateValue%5)])
+        immediate2ndPredictions.append(pred.predicted_mean.values[(iterateValue%5) + 1])
+        immediate3rdPredictions.append(pred.predicted_mean.values[ (iterateValue%5) + 2])
         # train.concat(test.iloc[0])
         train1 = pd.concat([train1, test[i:i + 1]], ignore_index=False, axis=0)
         # train1[column] = savgol_filter(train1[column], 15, 8)
+        iterateValue += 1
     return models
 
 def plotResults(dataSet, trainSet, testSet, model, title1, title2, splitLineValue, dataSetID):
@@ -182,10 +188,9 @@ def plotResults(dataSet, trainSet, testSet, model, title1, title2, splitLineValu
     # Plot whole dataset, fitted values and immediate observations
     startDate = '2021-02-17 12:18'
     endDate = '2021-02-17 12:40'
-
     dataSet.plot(figsize=(10, 7), xlabel='Time', ylabel='Latency', label='Latency', title=title1, xlim=[str(trainSet.index[-13])[:-9], str(testSet.index[int((len(testSet)/6)*5)])[:-9]])
     plt.plot(testSet.index, testSet['predictions'], label='Predictions')
-    plt.plot(trainSet.index, model.fittedvalues, label='Fitted model')
+    # plt.plot(trainSet.index, model.fittedvalues, label='Fitted model')
     plt.axvline(pd.to_datetime(splitLineValue), color='k', linestyle='--')
     plt.legend(loc='best')
     plt.savefig(str(dataSetID) + '. ' + title1 + '.png', dpi=300, bbox_inches='tight')
@@ -197,7 +202,7 @@ def plotResults(dataSet, trainSet, testSet, model, title1, title2, splitLineValu
                  xlim=[str(trainSet.index[-11])[:-9], str(testSet.index[int(len(testSet)/3)])[:-9]])
     plt.axvline(pd.to_datetime(splitLineValue), color='k', linestyle='--')
     plt.plot(testSet.index, testSet['predictions'], label='Predictions')
-    plt.plot(trainSet.index, model.fittedvalues, label='Fitted model')
+    # plt.plot(trainSet.index, model.fittedvalues, label='Fitted model')
     plt.legend(loc='best')
     plt.savefig(str(dataSetID) + '. ' + title2 + '.png', dpi=300, bbox_inches='tight')
     plt.show()
@@ -209,7 +214,7 @@ def plotResults(dataSet, trainSet, testSet, model, title1, title2, splitLineValu
                  xlim=[str(trainSet.index[-9])[:-9], str(testSet.index[int(len(testSet)/6)])[:-9]])
     plt.axvline(pd.to_datetime(splitLineValue), color='k', linestyle='--')
     plt.plot(testSet.index, testSet['predictions'], label='Predictions')
-    plt.plot(trainSet.index, model.fittedvalues, label='Fitted model')
+    # plt.plot(trainSet.index, model.fittedvalues, label='Fitted model')
     plt.legend(loc='best')
     plt.savefig(str(dataSetID) + '. ' + title2 + ' (Much smaller).png', dpi=300, bbox_inches='tight')
     plt.show()

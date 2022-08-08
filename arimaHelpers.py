@@ -13,6 +13,7 @@ from sklearn.metrics import mean_squared_error
 from math import sqrt
 from pmdarima import auto_arima
 from scipy.signal import savgol_filter
+from statsmodels.tsa.vector_ar.vecm import coint_johansen
 
 def decomposeData(dataSet, dataColumn):
     # Decompose data into trends and seasonal
@@ -196,3 +197,37 @@ def plotAnomaly(train, test, result, pred):
 
     else:
         print('There are no anomalies')
+
+def stationaryCheck(series , column_name):
+    print (f'Results of Dickey-Fuller Test for column: {column_name}')
+    dftest = adfuller(series, autolag='AIC')
+    dfoutput = pd.Series(dftest[0:4], index=['Test Statistic','p-value','No Lags Used','Number of Observations Used'])
+    for key,value in dftest[4].items():
+       dfoutput['Critical Value (%s)'%key] = value
+    # print (dfoutput)
+    if dftest[1] <= 0.05:
+        # print("Conclusion:")
+        # print("Reject the null hypothesis")
+        print("Data is stationary")
+        return True
+    else:
+        # print("Conclusion:")
+        # print("Fail to reject the null hypothesis")
+        print("series is non-stationary")
+        return False
+
+def cointegration_test(df):
+    print('check if the series is correlated to each other or not')
+    res = coint_johansen(df,-1,5)
+    d = {'0.90':0, '0.95':1, '0.99':2}
+    traces = res.lr1
+    cvts = res.cvt[:, d[str(1-0.05)]]
+    def adjust(val, length= 6):
+        return str(val).ljust(length)
+    print('Column Name   >  Test Stat > C(95%)    =>   Signif  \n', '--'*20)
+    for col, trace, cvt in zip(df.columns, traces, cvts):
+        print(adjust(col), '> ', adjust(round(trace,2), 9), ">", adjust(cvt, 8), ' =>  ' , trace > cvt)
+
+# invert difference
+def invert_difference(orig_data, diff_data, interval):
+	return [diff_data[i-interval] + orig_data[i-interval] for i in range(interval, len(orig_data))]
